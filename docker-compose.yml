@@ -1,0 +1,78 @@
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: mlflow
+      POSTGRES_USER: mlflow
+      POSTGRES_PASSWORD: mlflow
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mlflow -d mlflow"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minio
+      MINIO_ROOT_PASSWORD: minio12345
+    ports:
+      - "9000:9000"   # S3 API
+      - "9001:9001"   # Web console
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - minio:/data
+
+  createbuckets:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 minio minio12345 &&
+      mc mb -p local/mlflow || true &&
+      mc anonymous set public local/mlflow || true
+      "
+    restart: "no"
+
+  mlflow:
+    build:
+      context: ./mlflow
+    depends_on:
+      postgres:
+        condition: service_healthy
+      createbuckets:
+        condition: service_completed_successfully
+    environment:
+      # DB (backend store)
+      MLFLOW_BACKEND_STORE_URI: postgresql+psycopg://mlflow:mlflow@postgres:5432/mlflow
+      # Artifacts (MinIO as S3)
+      MLFLOW_S3_ENDPOINT_URL: http://minio:9000s
+      AWS_ACCESS_KEY_ID: minio
+      AWS_SECRET_ACCESS_KEY: minio12345
+    command:
+      [
+        "mlflow", "server",
+        "--host", "0.0.0.0",
+        "--port", "5000",
+        "--backend-store-uri", "postgresql+psycopg://mlflow:mlflow@postgres:5432/mlflow",
+        "--artifacts-destination", "s3://mlflow",
+        "--serve-artifacts"
+      ]
+    ports:
+      - "5000:5000"
+
+volumes:
+  pgdata:
+  minio:
