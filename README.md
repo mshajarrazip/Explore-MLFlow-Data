@@ -1,6 +1,6 @@
 # Explore-MLflow-Data
 
-Exploring MLflow data and figuring what it's all about ~
+Exploring MLflow data and figuring what it's all about from the tutorials [here](https://mlflow.org/docs/2.21.3/dataset/).
 
 ## Environment Setup
 

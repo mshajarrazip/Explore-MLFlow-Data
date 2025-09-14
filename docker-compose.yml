@@ -1,20 +1,32 @@
 
 services:
-  postgres:
-    image: postgres:16-alpine
+  db:
+    build:
+      context: ./db
     environment:
-      POSTGRES_DB: mlflow
-      POSTGRES_USER: mlflow
-      POSTGRES_PASSWORD: mlflow
+      - DB_NAMES=mlflow
+    command: ./entrypoints.sh
+    # command: tail -f /dev/null
     ports:
-      - "5432:5432"
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U mlflow -d mlflow"]
-      interval: 5s
-      timeout: 3s
-      retries: 20
+      # For login from outside container, use 1430
+      # From other containers in the same network, do db:1433
+      - "${PORT_DB:-1433}:1433"
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - db-data:/var/opt/mssql/data
+    healthcheck:
+      test: [
+        "CMD", "/opt/mssql-tools18/bin/sqlcmd",
+        "-S", "localhost",
+        "-U", "sa",
+        "-P", "Password123",
+        "-Q", "IF DB_ID('mlpreds') IS NULL BEGIN RAISERROR('Database not found', 16, 1) END;",
+        "-C"
+      ]
+      interval: 10s
+      timeout: 30s
+      retries: 30
+    networks:
+      - default
 
   minio:
     image: minio/minio:latest
@@ -50,29 +62,21 @@ services:
     build:
       context: ./mlflow
     depends_on:
-      postgres:
+      db:
         condition: service_healthy
       createbuckets:
         condition: service_completed_successfully
     environment:
       # DB (backend store)
-      MLFLOW_BACKEND_STORE_URI: postgresql+psycopg://mlflow:mlflow@postgres:5432/mlflow
+      MLFLOW_BACKEND_STORE_URI: mssql+pyodbc://sa:Password123@db:1433/mlflow?driver=ODBC+Driver+18+for+SQL+Server&TrustServerCertificate=yes
       # Artifacts (MinIO as S3)
-      MLFLOW_S3_ENDPOINT_URL: http://minio:9000s
+      MLFLOW_S3_ENDPOINT_URL: http://minio:9000
       AWS_ACCESS_KEY_ID: minio
       AWS_SECRET_ACCESS_KEY: minio12345
-    command:
-      [
-        "mlflow", "server",
-        "--host", "0.0.0.0",
-        "--port", "5000",
-        "--backend-store-uri", "postgresql+psycopg://mlflow:mlflow@postgres:5432/mlflow",
-        "--artifacts-destination", "s3://mlflow",
-        "--serve-artifacts"
-      ]
+    command: ["/entrypoint.sh"]
     ports:
       - "5000:5000"
 
 volumes:
-  pgdata:
+  db-data:
   minio:
