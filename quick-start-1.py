@@ -52,5 +52,3 @@ if __name__ == "__main__":
     local_dataset = dataset_source.load()
     logging.info("Loaded dataset from source: %s", local_dataset)
     loaded_data = pd.read_csv(local_dataset)
-    
-    pass
